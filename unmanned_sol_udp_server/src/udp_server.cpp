@@ -14,18 +14,19 @@
 #include <termios.h>
 #include <arpa/inet.h>
 #include <sensor_msgs/NavSatFix.h>
+#include <ackermann_msgs/AckermannDriveStamped.h>
 
-void ubloxCallback(const sensor_msgs::NavSatFix& ublox_msg);
+void VehCommandCallback(const ackermann_msgs::AckermannDriveStamped& msg);
+float steering_angle;
+float speed;
 
 // setup the initial name
 using namespace ros;
 using namespace std;
 
-ros::Subscriber UBLOX_sub;
-
 #define DF_UDP_BUFFER_SIZE  128
-#define DF_UDP_PORTNUM      3764
-#define DF_UDP_SERVER_ADDR  "192.168.3.111"
+#define DF_UDP_PORTNUM      10699
+#define DF_UDP_SERVER_ADDR  "192.168.10.201"
 //#define DF_UDP_SERVER_ADDR  "127.0.0.1"
 
 double llh[3];
@@ -41,17 +42,24 @@ double llh[3];
 
 struct TX_message_data
 {
-    double lat;
-    double lon;
-    double height;
+    uint8_t header_1;
+    uint8_t header_2;
+    uint8_t veh_mode;
+    uint8_t brake_cmd;
+    int8_t  steer_cmd;
+    uint8_t powertrain_mode;
+    uint8_t speed_cmd;
+    uint8_t chk_sum_1;
+    uint8_t chk_sum_2;
 };
+
 #pragma pack()
 
 // node main loop, for ROS
 int main(int argc, char** argv)
 {    
     // node name initialization
-    init(argc, argv, "udp_server");
+    init(argc, argv, "UnmannedSol_UDP_TX");
 
     // assign node handler
     ros::NodeHandle nh_;
@@ -62,7 +70,7 @@ int main(int argc, char** argv)
     //Publish
     //Publisher  Avante_LLH_pub	= nh_.advertise<std_msgs::Float64MultiArray>("/Avante/LLH", 10);
 
-    ros::Subscriber UBLOX_sub = nh_.subscribe("/ublox_gps/fix",10,&ubloxCallback);
+    ros::Subscriber subVehCommand = nh_.subscribe("/Ackermann/command",10,&VehCommandCallback);
 
     ros::Rate loop_rate(5);
 
@@ -91,54 +99,21 @@ int main(int argc, char** argv)
     ServerAddr.sin_family      = PF_INET;
     ServerAddr.sin_port        = htons(DF_UDP_PORTNUM); // PORT#
     ServerAddr.sin_addr.s_addr = inet_addr(DF_UDP_SERVER_ADDR); // IP for Server (Normally PC IP)
-    //ServerAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    //if(bind(Socket,(struct sockaddr *)&ServerAddr, sizeof(sockaddr_in)) < 0){
-    //    printf("bind() error!\n");
-    //    return -1;
-    //}
-
-//	memset(&MyAddr, 0, sizeof(MyAddr));
-//	MyAddr.sin_family = PF_INET;
-//	MyAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-//	MyAddr.sin_port = htons(DF_UDP_PORTNUM);
-
-//	if(bind(StrUDP.Socket,(struct sockaddr *)&MyAddr, sizeof(MyAddr))!=0)
-//	{
-//		printf("bind() error!\n");
-//        return -1;
-//	}
-
-//    char recvBuff;
-
-//	int size_addr = sizeof(StrUDP.ServerAddr);
-
-    //int ros_count = 0;
-    //float lat; float lon; float height;
-
-    // node loop, for ROS, check ros status, ros::ok()
     while(ok()){
         printf("Server_Avante!\n");
 
-        TX_buff.lat	 = llh[0];					// Avante
-        TX_buff.lon	 = llh[1];					// Avante
-        TX_buff.height   = 69;		// Avante
+        TX_buff.header_1 = 80;
+        TX_buff.header_2 = 85;
+        TX_buff.veh_mode = 15;
+        TX_buff.brake_cmd = 0;
+        TX_buff.steer_cmd = 50;
+        TX_buff.powertrain_mode = 0;
+        TX_buff.speed_cmd = 10;
+        TX_buff.chk_sum_1 = 1;
+        TX_buff.chk_sum_2 = 2;
 
         sendto(Socket, (char*)&TX_buff, sizeof(TX_buff), 0, (struct sockaddr *)(&ServerAddr), sizeof(ServerAddr));
-        printf("send data : %.7f  %.7f  %.7f\n",TX_buff.lat, TX_buff.lon, TX_buff.height);
-
-        // messages
-        //std_msgs::Float64MultiArray Avante_LLH_msg;
-
-        //Avante_LLH_msg.data.clear();
-        //Avante_LLH_msg.data.resize(4);
-        //Avante_LLH_msg.data[0] = TX_buff.lat;
-        //Avante_LLH_msg.data[1] = TX_buff.lon;
-        //Avante_LLH_msg.data[2] = TX_buff.height;
-        //Avante_LLH_msg.data[2] = 69;
-        //Avante_LLH_pub.publish(Avante_LLH_msg);
-
-        //ros_count++;
 
         // loop rate [Hz]
         loop_rate.sleep();
@@ -146,7 +121,6 @@ int main(int argc, char** argv)
         // loop sampling, ros
         spinOnce();
     }
-
     // for debugging
     printf("Terminate: Server_Avante_LLH_TX\n");
     close(Socket);
@@ -154,19 +128,8 @@ int main(int argc, char** argv)
     return 0;
 }
 
-void ubloxCallback(const sensor_msgs::NavSatFix& ublox_msg)
+void VehCommandCallback(const ackermann_msgs::AckermannDriveStamped& msg)
 {
-        llh[0] = ublox_msg.latitude;		//Lat
-        llh[1] = ublox_msg.longitude;		//Lon
-        llh[2] = ublox_msg.altitude;		//Height
-        return;
+    steering_angle = msg.steering_angle;
+    speed = msg.speed;
 }
-
-/*void ubloxCallback(const std_msgs::Float64MultiArray& ublox_msg)
-{
-        llh[0] = ublox_msg.data.at(3)/100.0;		//Lat
-        llh[1] = ublox_msg.data.at(5)/100.0;		//Lon
-        llh[2] = 69;		//vehicle class (emergency vehicle)
-        return;
-}*/
-

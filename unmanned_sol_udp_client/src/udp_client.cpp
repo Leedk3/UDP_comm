@@ -1,5 +1,3 @@
-#define UAV_NUM1
-
 // essential header for ROS-OpenCV operation
 #include <ros/ros.h>
 
