@@ -11,7 +11,6 @@ find_package(catkin REQUIRED COMPONENTS
 
 catkin_package(
   CATKIN_DEPENDS roscpp std_msgs
-   sensor_msgs
 )
 
 include_directories(
@@ -23,11 +22,8 @@ include_directories(
 add_executable(unmanned_sol_udp_client src/etri_ugv_udp_client.cpp)
 
 
-target_link_libraries(
-	unmanned_sol_udp_client
-        ${catkin_LIBRARIES}
-        ${PCL_LIBRARIES}
-        ${Boost_LIBRARIES}
+target_link_libraries(unmanned_sol_udp_client
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${Boost_LIBRARIES}
 )
-
-
