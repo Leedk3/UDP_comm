@@ -19,7 +19,7 @@ include_directories(
 	${Boost_INCLUDE_DIRS}
 )
 
-add_executable(unmanned_sol_udp_client src/etri_ugv_udp_client.cpp)
+add_executable(unmanned_sol_udp_client src/unmanned_ugv_udp_client.cpp)
 
 
 target_link_libraries(unmanned_sol_udp_client

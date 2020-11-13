@@ -19,8 +19,12 @@ include_directories(
 	${catkin_INCLUDE_DIRS}
 )
 
-add_executable(unmanned_sol_udp_server src/etri_ugv_udp_server.cpp)
-
+add_executable(unmanned_sol_udp_server src/unmanned_ugv_udp_server.cpp)
 target_link_libraries(unmanned_sol_udp_server
+  ${catkin_LIBRARIES}
+)
+
+add_executable(etri_udp_server src/etri_udp_server.cpp)
+target_link_libraries(etri_udp_server
   ${catkin_LIBRARIES}
 )
