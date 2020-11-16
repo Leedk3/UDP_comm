@@ -20,6 +20,7 @@
 // setup the initial name
 using namespace ros;
 using namespace std;
+using namespace usrg_utm;
 
 #define DF_UDP_BUFFER_SIZE_  256
 #define DF_UDP_PORTNUM_      16098
@@ -56,12 +57,6 @@ class KAIST_TO_ETRI
         ros::Subscriber subGpsRaw;
         ros::Subscriber subImuRaw;
         ros::Subscriber subCollision;
-        // usrg_utm::GpsData origin_latlon;
-        // origin_latlon.lat = 0;
-        // origin_latlon.lon = 0;
-        
-        // usrg_utm::UtmProjector projector(usrg_utm::GpsData origin_latlon);
-        // lanelet::BasicPoint3d projection = projector.forward(lanelet::GPSPoint{lat, lon, 0});
 
 };
 
@@ -92,12 +87,27 @@ void KAIST_TO_ETRI::CallbackOdometry(const nav_msgs::Odometry& msg)
 {
     m_VehOdometry = msg;
     bVehOdometry = true;
+
 }
 
 void KAIST_TO_ETRI::CallbackGpsRaw(const sensor_msgs::NavSatFix& msg)
 {
     m_GpsRaw = msg;
     bGpsRaw = true;
+
+    sensor_msgs::NavSatFix origin_llh;
+    origin_llh.latitude = 36.613100;
+    origin_llh.longitude = 127.4697269;
+    
+    UtmProjector projector(origin_llh);    
+    geometry_msgs::Pose2D projection = projector.forward(msg);
+
+
+    sensor_msgs::NavSatFix testBackward = projector.reverse(projection);
+
+    printf("utm local Data: \n x: %.9f ,y: %.9f \n" , projection.x, projection.y);
+    printf("origin llh Data: \n x: %.9f ,y: %.9f \n" , testBackward.latitude, testBackward.longitude);
+
 }
 
 void KAIST_TO_ETRI::CallbackImuRaw(const sensor_msgs::Imu& msg)
@@ -245,8 +255,8 @@ int main(int argc, char** argv)
 
 
         sendto(Socket, (char*)&TX_buff, sizeof(TX_buff), 0, (struct sockaddr *)(&ServerAddr), sizeof(ServerAddr));
-        std::cout << "--------------------------------------------------------" << std::endl;
-        ROS_INFO("TX data to Etri -  CrossTrackErr: %f, HeadingErr : %f)", TX_buff.crossTrackErr, TX_buff.headingErr);
+        // std::cout << "--------------------------------------------------------" << std::endl;
+        // ROS_INFO("TX data to Etri -  CrossTrackErr: %f, HeadingErr : %f)", TX_buff.crossTrackErr, TX_buff.headingErr);
         loop_rate.sleep();
         // loop sampling, ros
         spinOnce();

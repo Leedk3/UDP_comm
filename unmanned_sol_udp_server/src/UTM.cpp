@@ -1,67 +1,52 @@
-// #include "projector/UTM.h"
+#include "projector/UTM.h"
 
-// using namespace usrg_utm;
+using namespace usrg_utm;
 
-// UtmProjector::UtmProjector(sensor_msgs::NavSatFix& origin) : m_isInNorthernHemisphere(false), m_origin(origin)
-// {
-//   double x = 0;
-//   double y = 0;
-//   GeographicLib::UTMUPS::Forward(m_origin.latitude, m_origin.longitude, m_zone,
-//                                  m_isInNorthernHemisphere, x, y);
+UtmProjector::UtmProjector(sensor_msgs::NavSatFix& origin) : m_isInNorthernHemisphere(true), m_origin(origin)
+{
+  GeographicLib::UTMUPS::Forward(m_origin.latitude, m_origin.longitude, m_zone,
+                                 m_isInNorthernHemisphere, m_utmOrigin.x, m_utmOrigin.y);
 
-// }
+}
 
-// geometry_msgs::Pose2D UtmProjector::forward(const sensor_msgs::NavSatFix& gps) const {
+geometry_msgs::Pose2D UtmProjector::forward(const sensor_msgs::NavSatFix& gps){
 
-//   try {
-//     GeographicLib::UTMUPS::Forward(gps.latitude, gps.longitude, zone, northp, m_utmXY.x, m_utmXY.y);
-//   } catch (GeographicLib::GeographicErr& e) {
-//     ROS_WARN("GeographicLib FORWARD ERROR!");
-//   }
+  geometry_msgs::Pose2D utmXY;
 
-//   if (zone != zone_ || northp != isInNorthernHemisphere_) {
-//     // try to transfer to the desired zone
-//     double xAfterTransfer = 0;
-//     double yAfterTransfer = 0;
-//     int zoneAfterTransfer = 0;
-//     try {
-//       GeographicLib::UTMUPS::Transfer(zone, northp, utm.x, utm.y, zone_, isInNorthernHemisphere_, xAfterTransfer,
-//                                       yAfterTransfer, zoneAfterTransfer);
-//     } catch (GeographicLib::GeographicErr& e) {
-//       ROS_WARN("UTM TRANSFER ERROR");
-//     }
+  if(!m_isInNorthernHemisphere)
+    ROS_WARN("Is it Southern Hemisphere?");
 
-//     if (zoneAfterTransfer != zone_) {
-//       ROS_WARN("You have left the padding area of the UTM zone!");
-//     }
-//     utm.x = xAfterTransfer;
-//     utm.y = yAfterTransfer;
-//   }
+  try {
+    GeographicLib::UTMUPS::Forward(gps.latitude, gps.longitude, m_zone, m_isInNorthernHemisphere, utmXY.x, utmXY.y);
 
-//   if (useOffset_) {
-//     utm.x -= xOffset_;
-//     utm.y -= yOffset_;
-//   }
+    printf("utm Data: \n x: %.9f ,y: %.9f \n" , utmXY.x, utmXY.y);
+    printf("origin Data: \n x: %.9f ,y: %.9f \n" , m_utmOrigin.x, m_utmOrigin.y);
 
-//   return utm;
-// }
+    utmXY.x = utmXY.x - m_utmOrigin.x;
+    utmXY.y = utmXY.y - m_utmOrigin.y;
 
-// GpsData UtmProjector::reverse(const UtmData& utm) const {
-//   GpsData gps{0., 0., utm.alt};
-//   try {
-//     GeographicLib::UTMUPS::Reverse(zone_, isInNorthernHemisphere_, useOffset_ ? utm.x + xOffset_ : utm.x,
-//                                    useOffset_ ? utm.y + yOffset_ : utm.y, gps.lat, gps.lon);
-//   } catch (GeographicLib::GeographicErr& e) {
-//     ROS_WARN("UTM Reverse Error");
-//   }
+  } catch (GeographicLib::GeographicErr& e) {
+    ROS_WARN("GeographicLib FORWARD ERROR!");
+  }
 
-//   if (throwInPaddingArea_) {
-//     // for zone compliance testing:
-//     try {
-//       forward(gps);
-//     } catch (GeographicLib::GeographicErr& e) {
-//       ROS_WARN("UTM Forward Error");
-//     };
-//   }
-//   return gps;
-// }
+  return utmXY;
+}
+
+sensor_msgs::NavSatFix UtmProjector::reverse(const geometry_msgs::Pose2D& utm){
+
+  sensor_msgs::NavSatFix GpsRaw;
+  geometry_msgs::Pose2D utmXY; 
+
+  if(!m_isInNorthernHemisphere)
+    ROS_WARN("Is it Southern Hemisphere?");
+
+  try { 
+    utmXY.x = utm.x + m_utmOrigin.x;
+    utmXY.y = utm.y + m_utmOrigin.y;
+    GeographicLib::UTMUPS::Reverse(m_zone, m_isInNorthernHemisphere, utmXY.x, utmXY.y, GpsRaw.latitude, GpsRaw.longitude);
+  } catch (GeographicLib::GeographicErr& e) {
+    ROS_WARN("UTM Reverse Error");
+  }
+
+  return GpsRaw;
+}
