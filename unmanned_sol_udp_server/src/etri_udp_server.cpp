@@ -14,13 +14,16 @@
 #include <sensor_msgs/NavSatFix.h>
 #include <std_msgs/Bool.h>
 
+#include <GeographicLib/UTMUPS.hpp>
+#include "projector/UTM.h"
+
 // setup the initial name
 using namespace ros;
 using namespace std;
 
-#define DF_UDP_BUFFER_SIZE  128
-#define DF_UDP_PORTNUM      16099 //Check here
-#define DF_UDP_SERVER_ADDR  "192.168.10.201" 
+#define DF_UDP_BUFFER_SIZE_  256
+#define DF_UDP_PORTNUM_      16098
+#define DF_UDP_SERVER_ADDR_  "192.168.10.201" 
 
 class KAIST_TO_ETRI
 {
@@ -53,7 +56,13 @@ class KAIST_TO_ETRI
         ros::Subscriber subGpsRaw;
         ros::Subscriber subImuRaw;
         ros::Subscriber subCollision;
+        // usrg_utm::GpsData origin_latlon;
+        // origin_latlon.lat = 0;
+        // origin_latlon.lon = 0;
         
+        // usrg_utm::UtmProjector projector(usrg_utm::GpsData origin_latlon);
+        // lanelet::BasicPoint3d projection = projector.forward(lanelet::GPSPoint{lat, lon, 0});
+
 };
 
 KAIST_TO_ETRI::KAIST_TO_ETRI(ros::NodeHandle& n) : bVehState(false), bVehOdometry(false), bGpsRaw(false), 
@@ -118,7 +127,8 @@ struct TX_message_data
     double gpsLat;
     double gpsLng;
     double gpsHeight;
-    double gpsStatus;
+    double gpsHeading;
+    uint32_t gpsStatus;
     float TTC;
     bool collision;
     double crossTrackErr;
@@ -169,44 +179,74 @@ int main(int argc, char** argv)
     // UDP-IP Setting
     memset(&ServerAddr, 0, sizeof(ServerAddr)); // Clear to 0
     ServerAddr.sin_family      = PF_INET;
-    ServerAddr.sin_port        = htons(DF_UDP_PORTNUM); // PORT#
-    ServerAddr.sin_addr.s_addr = inet_addr(DF_UDP_SERVER_ADDR); // IP for Server (Normally PC IP)
+    ServerAddr.sin_port        = htons(DF_UDP_PORTNUM_); // PORT#
+    ServerAddr.sin_addr.s_addr = inet_addr(DF_UDP_SERVER_ADDR_); // IP for Server (Normally PC IP)
     
 
     KAIST_TO_ETRI _server_to_send(nh_);
 
     while(ros::ok()){
 
-        TX_buff.vehLat = _server_to_send.m_VehOdometry.pose.pose.position.x; 
-        TX_buff.vehLng = _server_to_send.m_VehOdometry.pose.pose.position.y; 
-        TX_buff.vehHeading = _server_to_send.m_VehOdometry.pose.pose.orientation.w; 
-        TX_buff.XAcc = _server_to_send.m_ImuRaw.linear_acceleration.x; 
-        TX_buff.YAcc = _server_to_send.m_ImuRaw.linear_acceleration.y; 
-        TX_buff.ZAcc = _server_to_send.m_ImuRaw.linear_acceleration.z; 
-        TX_buff.XGyro = _server_to_send.m_ImuRaw.angular_velocity.x; 
-        TX_buff.YGyro = _server_to_send.m_ImuRaw.angular_velocity.y; 
-        TX_buff.ZGyro = _server_to_send.m_ImuRaw.angular_velocity.z; 
-        TX_buff.gpsTime = _server_to_send.m_GpsRaw.header.stamp.toSec(); 
-        TX_buff.gpsLat = _server_to_send.m_GpsRaw.latitude; 
-        TX_buff.gpsLng = _server_to_send.m_GpsRaw.longitude; 
-        TX_buff.gpsHeight = _server_to_send.m_GpsRaw.altitude; 
-        TX_buff.gpsStatus = (double)_server_to_send.m_GpsRaw.status.status; //change this to int8 
-        TX_buff.TTC = 0; //float 
-        TX_buff.collision = _server_to_send.m_Collision.data; 
-        TX_buff.crossTrackErr = 0; 
-        TX_buff.headingErr = 0; 
-        TX_buff.vehStuck = 0; 
-        TX_buff.operationMode = 0; 
-        TX_buff.RTOKAIST = 0; 
-        TX_buff.steeringAngle = 0; 
-        TX_buff.frontObstacleDetection = 0; 
-        TX_buff.rearObstacleDetection = 0; 
+        TX_buff.vehLat = (double)_server_to_send.m_VehOdometry.pose.pose.position.x; 
+        TX_buff.vehLng = (double)_server_to_send.m_VehOdometry.pose.pose.position.y; 
+        TX_buff.vehHeading = (double)_server_to_send.m_VehOdometry.pose.pose.orientation.w; 
+        // Odom to llh
+
+
+        TX_buff.XAcc = (double)_server_to_send.m_ImuRaw.linear_acceleration.x; 
+        TX_buff.YAcc = (double)_server_to_send.m_ImuRaw.linear_acceleration.y; 
+        TX_buff.ZAcc = (double)_server_to_send.m_ImuRaw.linear_acceleration.z; 
+        TX_buff.XGyro = (double)_server_to_send.m_ImuRaw.angular_velocity.x; 
+        TX_buff.YGyro = (double)_server_to_send.m_ImuRaw.angular_velocity.y; 
+        TX_buff.ZGyro = (double)_server_to_send.m_ImuRaw.angular_velocity.z; 
+        TX_buff.gpsTime = (double)_server_to_send.m_GpsRaw.header.stamp.toSec(); 
+        TX_buff.gpsLat = (double)_server_to_send.m_GpsRaw.latitude; 
+        TX_buff.gpsLng = (double)_server_to_send.m_GpsRaw.longitude; 
+        TX_buff.gpsHeight = (double)_server_to_send.m_GpsRaw.altitude;
+        TX_buff.gpsHeading =  (double)15.0;
+        TX_buff.gpsStatus = (uint32_t)_server_to_send.m_GpsRaw.status.status; //ublox data output: -1. chech this. 
+        TX_buff.TTC = (float)0; //float //Calculate using front obstacle.
+        TX_buff.collision = (bool)_server_to_send.m_Collision.data; 
+        TX_buff.crossTrackErr = (double)0; //Calculate using stanley method.
+        TX_buff.headingErr = (double)0; //calculate using stanley method.
+        TX_buff.vehStuck = (float)0; 
+        TX_buff.operationMode = (uint8_t)0; 
+        TX_buff.RTOKAIST = (uint16_t)0; //Error , Status 
+        TX_buff.steeringAngle = (double)0; //remove it
+        TX_buff.frontObstacleDetection = (double)0; //What is this?
+        TX_buff.rearObstacleDetection =  (double)0; //What is this?
+
+        //comm test
+        // TX_buff.vehLat = (double)1.0;
+        // TX_buff.vehLng =  (double)2.0;
+        // TX_buff.vehHeading = (double)3.0; 
+        // TX_buff.XAcc = (double)4.0;
+        // TX_buff.YAcc =  (double)5.0;
+        // TX_buff.ZAcc =  (double)6.0;
+        // TX_buff.XGyro =  (double)7.0;
+        // TX_buff.YGyro =  (double)8.0;
+        // TX_buff.ZGyro =  (double)9.0;
+        // TX_buff.gpsTime =  (double)11.0;
+        // TX_buff.gpsLat =  (double)12.0;
+        // TX_buff.gpsLng =  (double)13.0;
+        // TX_buff.gpsHeight =  (double)14.0;
+        // TX_buff.gpsHeading =  (double)15.0;
+        // TX_buff.gpsStatus = (uint32_t)5;
+        // TX_buff.TTC =  (float)16.0;
+        // TX_buff.collision = (bool)true; 
+        // TX_buff.crossTrackErr = (double)18.0; 
+        // TX_buff.headingErr = (double)19.0;
+        // TX_buff.vehStuck = (float)20.0;
+        // TX_buff.operationMode = (uint8_t)3;  
+        // TX_buff.RTOKAIST = (uint16_t)4;
+        // TX_buff.steeringAngle = (double)21.0;  
+        // TX_buff.frontObstacleDetection = (double)22.0;  
+        // TX_buff.rearObstacleDetection =  (double)23.0;
+
 
         sendto(Socket, (char*)&TX_buff, sizeof(TX_buff), 0, (struct sockaddr *)(&ServerAddr), sizeof(ServerAddr));
-        // std::cout << "--------------------------------------------------------" << std::endl;
-        // ROS_INFO("Steering cmd:  %f, Speed cmd : %f)", _server_to_send.steering_angle, _server_to_send.speed);
-        // ROS_INFO("TX data to Unmanned: STEER: %d, SPEED : %d)", TX_buff.steer_cmd, TX_buff.speed_cmd);
-
+        std::cout << "--------------------------------------------------------" << std::endl;
+        ROS_INFO("TX data to Etri -  CrossTrackErr: %f, HeadingErr : %f)", TX_buff.crossTrackErr, TX_buff.headingErr);
         loop_rate.sleep();
         // loop sampling, ros
         spinOnce();
