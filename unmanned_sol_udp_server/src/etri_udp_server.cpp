@@ -58,11 +58,20 @@ class KAIST_TO_ETRI
         ros::Subscriber subImuRaw;
         ros::Subscriber subCollision;
 
+        double m_origin_lat;
+        double m_origin_lon;
+        
+
 };
 
-KAIST_TO_ETRI::KAIST_TO_ETRI(ros::NodeHandle& n) : bVehState(false), bVehOdometry(false), bGpsRaw(false), 
+KAIST_TO_ETRI::KAIST_TO_ETRI(ros::NodeHandle& n) : nh(n), bVehState(false), bVehOdometry(false), bGpsRaw(false), 
                                                    bImuRaw(false), bCollision(false)
 {
+
+    //Parameters
+    nh.param<double>("/ugv_odom_lanelet2/origin_lat", m_origin_lat, 36.6104614); //36.48378670 : sejong APT
+    nh.param<double>("/ugv_odom_lanelet2/origin_lon", m_origin_lon, 127.2891284); //127.294427 : sejong
+
     subVehState = nh.subscribe("/Ackeramnn/veh_state",10,&KAIST_TO_ETRI::CallbackVehState, this);
     subVehOdometry = nh.subscribe("/Odometry/ekf_slam",10,&KAIST_TO_ETRI::CallbackOdometry, this);
     subGpsRaw = nh.subscribe("/gps/fix",10, &KAIST_TO_ETRI::CallbackGpsRaw, this);
@@ -87,6 +96,16 @@ void KAIST_TO_ETRI::CallbackOdometry(const nav_msgs::Odometry& msg)
 {
     m_VehOdometry = msg;
     bVehOdometry = true;
+    // Use UTM
+    sensor_msgs::NavSatFix origin_llh;
+    origin_llh.latitude =  m_origin_lat;
+    origin_llh.longitude = m_origin_lon;
+
+    geometry_msgs::Pose2D current_odom;
+    current_odom.
+    UtmProjector projector(origin_llh);    
+    geometry_msgs::Pose2D projection = projector.forward(*msg);
+
 
 }
 
