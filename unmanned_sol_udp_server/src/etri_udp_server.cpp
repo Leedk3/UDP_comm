@@ -2,6 +2,7 @@
 #define KAIST_TO_ETRI_
 // essential header for ROS-OpenCV operation
 #include <ros/ros.h>
+#include <cmath>
 // for using serial communication
 #include <unistd.h>
 #include <fcntl.h>
@@ -13,6 +14,7 @@
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <std_msgs/Bool.h>
+#include <tf/transform_datatypes.h>
 
 #include <GeographicLib/UTMUPS.hpp>
 #include "projector/UTM.h"
@@ -31,6 +33,8 @@ class KAIST_TO_ETRI
     public:
         KAIST_TO_ETRI(ros::NodeHandle& n);        
         ~KAIST_TO_ETRI();
+
+        void init();
 
         void CallbackVehState(const ackermann_msgs::AckermannDriveStamped& msg);        
         void CallbackOdometry(const nav_msgs::Odometry& msg);
@@ -60,6 +64,10 @@ class KAIST_TO_ETRI
 
         double m_origin_lat;
         double m_origin_lon;
+        double m_utm2gps_yaw_bias;
+        sensor_msgs::NavSatFix m_origin_llh;
+        sensor_msgs::NavSatFix m_estimated_llh;
+        double m_heading;
         
 
 };
@@ -69,8 +77,9 @@ KAIST_TO_ETRI::KAIST_TO_ETRI(ros::NodeHandle& n) : nh(n), bVehState(false), bVeh
 {
 
     //Parameters
-    nh.param<double>("/ugv_odom_lanelet2/origin_lat", m_origin_lat, 36.6104614); //36.48378670 : sejong APT
-    nh.param<double>("/ugv_odom_lanelet2/origin_lon", m_origin_lon, 127.2891284); //127.294427 : sejong
+    nh.param<double>("/etri_udp_server/origin_lat", m_origin_lat, 37.6970297); //36.48378670 : sejong APT
+    nh.param<double>("/etri_udp_server/origin_lon", m_origin_lon, 126.7495693); //127.294427 : sejong
+    nh.param<double>("/etri_udp_server/utm2gps_yaw_bias", m_utm2gps_yaw_bias, -20); //deg
 
     subVehState = nh.subscribe("/Ackeramnn/veh_state",10,&KAIST_TO_ETRI::CallbackVehState, this);
     subVehOdometry = nh.subscribe("/Odometry/ekf_slam",10,&KAIST_TO_ETRI::CallbackOdometry, this);
@@ -79,11 +88,20 @@ KAIST_TO_ETRI::KAIST_TO_ETRI(ros::NodeHandle& n) : nh(n), bVehState(false), bVeh
     subCollision = nh.subscribe("/Bool/Collision",10, &KAIST_TO_ETRI::CallbackCollision, this);
 
     ROS_DEBUG("KAIST_TO_ETRI is created");
+    init();
 };
 
 KAIST_TO_ETRI::~KAIST_TO_ETRI() 
 {    
     ROS_INFO("KAIST_TO_ETRI destructor.");
+}
+
+void KAIST_TO_ETRI::init()
+{
+    
+    m_origin_llh.latitude =  m_origin_lat;
+    m_origin_llh.longitude = m_origin_lon;
+
 }
 
 void KAIST_TO_ETRI::CallbackVehState(const ackermann_msgs::AckermannDriveStamped& msg)
@@ -96,16 +114,30 @@ void KAIST_TO_ETRI::CallbackOdometry(const nav_msgs::Odometry& msg)
 {
     m_VehOdometry = msg;
     bVehOdometry = true;
+    
     // Use UTM
-    sensor_msgs::NavSatFix origin_llh;
-    origin_llh.latitude =  m_origin_lat;
-    origin_llh.longitude = m_origin_lon;
-
     geometry_msgs::Pose2D current_odom;
-    current_odom.
-    UtmProjector projector(origin_llh);    
-    geometry_msgs::Pose2D projection = projector.forward(*msg);
 
+    double yaw_bias = m_utm2gps_yaw_bias * M_PI / 180; //deg -> rad
+
+    current_odom.x = -msg.pose.pose.position.y;
+    current_odom.y = msg.pose.pose.position.x;
+
+    current_odom.x = current_odom.x * cos(yaw_bias) + current_odom.y * sin(yaw_bias);
+    current_odom.y = -current_odom.x * sin(yaw_bias) + current_odom.y * cos(yaw_bias);
+
+    UtmProjector utm2gps(m_origin_llh);    
+    m_estimated_llh = utm2gps.reverse(current_odom);
+
+    tf::Quaternion q(msg.pose.pose.orientation.x, 
+                     msg.pose.pose.orientation.y, 
+                     msg.pose.pose.orientation.z, 
+                     msg.pose.pose.orientation.w);
+    tf::Matrix3x3 m(q);
+    double roll, pitch;
+    m.getRPY(roll, pitch, m_heading);
+    m_heading *=  180 / M_PI;
+    ROS_INFO("lat: %f, lon: %f, heading: %f", m_estimated_llh.latitude, m_estimated_llh.longitude, m_heading);
 
 }
 
@@ -113,19 +145,10 @@ void KAIST_TO_ETRI::CallbackGpsRaw(const sensor_msgs::NavSatFix& msg)
 {
     m_GpsRaw = msg;
     bGpsRaw = true;
-
-    sensor_msgs::NavSatFix origin_llh;
-    origin_llh.latitude = 36.613100;
-    origin_llh.longitude = 127.4697269;
     
-    UtmProjector projector(origin_llh);    
-    geometry_msgs::Pose2D projection = projector.forward(msg);
-
-
-    sensor_msgs::NavSatFix testBackward = projector.reverse(projection);
-
-    printf("utm local Data: \n x: %.9f ,y: %.9f \n" , projection.x, projection.y);
-    printf("origin llh Data: \n x: %.9f ,y: %.9f \n" , testBackward.latitude, testBackward.longitude);
+    UtmProjector gps2utm(m_origin_llh);    
+    geometry_msgs::Pose2D projection = gps2utm.forward(msg);
+    // printf("utm local Data: \n x: %.9f ,y: %.9f \n" , projection.x, projection.y);
 
 }
 
@@ -216,11 +239,9 @@ int main(int argc, char** argv)
 
     while(ros::ok()){
 
-        TX_buff.vehLat = (double)_server_to_send.m_VehOdometry.pose.pose.position.x; 
-        TX_buff.vehLng = (double)_server_to_send.m_VehOdometry.pose.pose.position.y; 
-        TX_buff.vehHeading = (double)_server_to_send.m_VehOdometry.pose.pose.orientation.w; 
-        // Odom to llh
-
+        TX_buff.vehLat = (double)_server_to_send.m_estimated_llh.latitude; 
+        TX_buff.vehLng = (double)_server_to_send.m_estimated_llh.longitude; 
+        TX_buff.vehHeading = (double)_server_to_send.m_heading;         // Odom to llh
 
         TX_buff.XAcc = (double)_server_to_send.m_ImuRaw.linear_acceleration.x; 
         TX_buff.YAcc = (double)_server_to_send.m_ImuRaw.linear_acceleration.y; 
