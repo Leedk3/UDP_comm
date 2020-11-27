@@ -14,7 +14,9 @@
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Int32.h>
 #include <tf/transform_datatypes.h>
+#include <visualization_msgs/Marker.h>
 
 #include <GeographicLib/UTMUPS.hpp>
 #include "projector/UTM.h"
@@ -41,6 +43,8 @@ class KAIST_TO_ETRI
         void CallbackGpsRaw(const sensor_msgs::NavSatFix& msg);
         void CallbackImuRaw(const sensor_msgs::Imu& msg);
         void CallbackCollision(const std_msgs::Bool& msg);
+        void CallbackOperationMode(const std_msgs::Int32& msg);
+        void CallbackTargetObject(const visualization_msgs::Marker& msg);
         
         ackermann_msgs::AckermannDriveStamped m_VehState;
         nav_msgs::Odometry m_VehOdometry;
@@ -61,6 +65,8 @@ class KAIST_TO_ETRI
         ros::Subscriber subGpsRaw;
         ros::Subscriber subImuRaw;
         ros::Subscriber subCollision;
+        ros::Subscriber subOperationMode;
+        ros::Subscriber subTargetObject;
 
         double m_origin_lat;
         double m_origin_lon;
@@ -68,7 +74,15 @@ class KAIST_TO_ETRI
         sensor_msgs::NavSatFix m_origin_llh;
         sensor_msgs::NavSatFix m_estimated_llh;
         double m_heading;
-        
+        int m_OperationMode;
+        int m_RTO2KAIST;
+        double m_TTC;
+        double m_CountStuck;
+        double m_currentTime;
+        double m_prevTime;
+        geometry_msgs::Pose2D m_projectionPrev;
+        double m_GpsYawRaw;
+
 
 };
 
@@ -81,11 +95,13 @@ KAIST_TO_ETRI::KAIST_TO_ETRI(ros::NodeHandle& n) : nh(n), bVehState(false), bVeh
     nh.param<double>("/etri_udp_server/origin_lon", m_origin_lon, 126.7495693); //127.294427 : sejong
     nh.param<double>("/etri_udp_server/utm2gps_yaw_bias", m_utm2gps_yaw_bias, -20); //deg
 
-    subVehState = nh.subscribe("/Ackeramnn/veh_state",10,&KAIST_TO_ETRI::CallbackVehState, this);
+    subVehState = nh.subscribe("/Ackermann/veh_state",10,&KAIST_TO_ETRI::CallbackVehState, this);
     subVehOdometry = nh.subscribe("/Odometry/ekf_slam",10,&KAIST_TO_ETRI::CallbackOdometry, this);
     subGpsRaw = nh.subscribe("/gps/fix",10, &KAIST_TO_ETRI::CallbackGpsRaw, this);
     subImuRaw = nh.subscribe("/imu/data",10, &KAIST_TO_ETRI::CallbackImuRaw, this);
-    subCollision = nh.subscribe("/Bool/Collision",10, &KAIST_TO_ETRI::CallbackCollision, this);
+    subCollision = nh.subscribe("/Bool/collision",10, &KAIST_TO_ETRI::CallbackCollision, this);
+    subOperationMode = nh.subscribe("/Int/OperationMode",10, &KAIST_TO_ETRI::CallbackOperationMode, this);
+    subTargetObject = nh.subscribe("/Marker/VisualServoing/TargetObject", 10, &KAIST_TO_ETRI::CallbackTargetObject, this);
 
     ROS_DEBUG("KAIST_TO_ETRI is created");
     init();
@@ -108,6 +124,21 @@ void KAIST_TO_ETRI::CallbackVehState(const ackermann_msgs::AckermannDriveStamped
 {
     m_VehState = msg;
     bVehState = true;
+}
+
+void KAIST_TO_ETRI::CallbackOperationMode(const std_msgs::Int32& msg)
+{
+    m_OperationMode = msg.data;
+    if(msg.data == 4)
+        m_RTO2KAIST = 0;
+    else if(msg.data > 0 && msg.data < 4)
+        m_RTO2KAIST = 1;
+    else
+    {
+        m_RTO2KAIST = 2;
+        ROS_ERROR("Operation Mode ERROR");
+    }
+    
 }
 
 void KAIST_TO_ETRI::CallbackOdometry(const nav_msgs::Odometry& msg)
@@ -148,7 +179,10 @@ void KAIST_TO_ETRI::CallbackGpsRaw(const sensor_msgs::NavSatFix& msg)
     
     UtmProjector gps2utm(m_origin_llh);    
     geometry_msgs::Pose2D projection = gps2utm.forward(msg);
-    // printf("utm local Data: \n x: %.9f ,y: %.9f \n" , projection.x, projection.y);
+
+    double roll, pitch;
+    m_GpsYawRaw = atan2(projection.y - m_projectionPrev.y , projection.x - m_projectionPrev.x);
+    m_projectionPrev = projection;
 
 }
 
@@ -159,8 +193,38 @@ void KAIST_TO_ETRI::CallbackImuRaw(const sensor_msgs::Imu& msg)
 }
 void KAIST_TO_ETRI::CallbackCollision(const std_msgs::Bool& msg)
 {   
+    m_currentTime = ros::Time::now().toSec();
     m_Collision = msg;
-    bCollision = true;
+
+    double dt = m_currentTime - m_prevTime;
+    if(!bCollision)
+    {
+        m_prevTime = m_currentTime;    
+        bCollision = true;
+        return;
+    }
+    
+    if(msg.data)
+        m_CountStuck += dt;
+    else
+    {
+        m_CountStuck = 0;
+    }
+
+    m_prevTime = m_currentTime;
+}
+
+void KAIST_TO_ETRI::CallbackTargetObject(const visualization_msgs::Marker& msg)
+{
+
+    double distToTargetObject = sqrt(pow(msg.pose.position.x,2) + 
+                                     pow(msg.pose.position.y,2));
+    if(distToTargetObject == 0)
+        m_TTC = 10;
+    m_TTC =  distToTargetObject / (m_VehState.drive.speed * 3.6) ;
+
+    if(m_TTC > 10)
+        m_TTC = 10.1;
 }
 
 #pragma pack(1)
@@ -253,15 +317,15 @@ int main(int argc, char** argv)
         TX_buff.gpsLat = (double)_server_to_send.m_GpsRaw.latitude; 
         TX_buff.gpsLng = (double)_server_to_send.m_GpsRaw.longitude; 
         TX_buff.gpsHeight = (double)_server_to_send.m_GpsRaw.altitude;
-        TX_buff.gpsHeading =  (double)15.0;
-        TX_buff.gpsStatus = (uint32_t)_server_to_send.m_GpsRaw.status.status; //ublox data output: -1. chech this. 
-        TX_buff.TTC = (float)0; //float //Calculate using front obstacle.
+        TX_buff.gpsHeading =  (double)_server_to_send.m_GpsYawRaw;
+        TX_buff.gpsStatus = (uint32_t)1; //ublox data output: -1. chech this. 
+        TX_buff.TTC = (float)_server_to_send.m_TTC; 
         TX_buff.collision = (bool)_server_to_send.m_Collision.data; 
-        TX_buff.crossTrackErr = (double)0; //Calculate using stanley method.
-        TX_buff.headingErr = (double)0; //calculate using stanley method.
-        TX_buff.vehStuck = (float)0; 
-        TX_buff.operationMode = (uint8_t)0; 
-        TX_buff.RTOKAIST = (uint16_t)0; //Error , Status 
+        TX_buff.crossTrackErr = (double)0; //Calculate using stanley method. /ssh
+        TX_buff.headingErr = (double)0; //calculate using stanley method. /ssh
+        TX_buff.vehStuck = (float)_server_to_send.m_CountStuck; //ssh
+        TX_buff.operationMode = (uint8_t)_server_to_send.m_OperationMode; 
+        TX_buff.RTOKAIST = (uint16_t)_server_to_send.m_RTO2KAIST; //Error , Status 
         TX_buff.steeringAngle = (double)0; //remove it
         TX_buff.frontObstacleDetection = (double)0; //What is this?
         TX_buff.rearObstacleDetection =  (double)0; //What is this?

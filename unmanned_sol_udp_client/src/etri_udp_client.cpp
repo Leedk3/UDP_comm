@@ -72,8 +72,9 @@ int main(int argc, char** argv)
 
     // assign node ETRI_TO_KAIST
     ros::NodeHandle nh_;
-    ros::Publisher pubAckermann = nh_.advertise<ackermann_msgs::AckermannDriveStamped>("/Ackermann/veh_state", 10);
-    ackermann_msgs::AckermannDriveStamped VehState;
+    ros::Publisher pubEtriOperator = nh_.advertise<ackermann_msgs::AckermannDriveStamped>("/Ackermann/command/etri", 10);
+
+    ackermann_msgs::AckermannDriveStamped EtriCommand;
     // for debugging
     printf("Initiate: Server_RX\n");
     ros::Rate loop_rate(50);
@@ -154,6 +155,13 @@ int main(int argc, char** argv)
         std::cout << "temp2: " << temp2 << std::endl;
         std::cout << "\n" << std::endl;
 
+        EtriCommand.header.stamp = ros::Time::now();
+        EtriCommand.header.frame_id = "base_link";
+        EtriCommand.drive.steering_angle = desSteer;
+        EtriCommand.drive.speed = desSpeed;
+
+        pubEtriOperator.publish(EtriCommand);
+        
         loop_rate.sleep();
         // loop sampling, ros
         spinOnce();
