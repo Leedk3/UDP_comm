@@ -15,6 +15,7 @@
 #include <sensor_msgs/NavSatFix.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Int32.h>
+#include <std_msgs/Float64.h>
 #include <tf/transform_datatypes.h>
 #include <visualization_msgs/Marker.h>
 
@@ -45,6 +46,9 @@ class KAIST_TO_ETRI
         void CallbackCollision(const std_msgs::Bool& msg);
         void CallbackOperationMode(const std_msgs::Int32& msg);
         void CallbackTargetObject(const visualization_msgs::Marker& msg);
+        void CallbackCrossTrackError(const std_msgs::Float64& msg);
+        void CallbackHeadingError(const std_msgs::Float64& msg);
+
         
         ackermann_msgs::AckermannDriveStamped m_VehState;
         nav_msgs::Odometry m_VehOdometry;
@@ -82,6 +86,8 @@ class KAIST_TO_ETRI
         double m_prevTime;
         geometry_msgs::Pose2D m_projectionPrev;
         double m_GpsYawRaw;
+        double m_HeadingError;
+        double m_CrossTrackError;
 
 
 };
@@ -227,6 +233,16 @@ void KAIST_TO_ETRI::CallbackTargetObject(const visualization_msgs::Marker& msg)
         m_TTC = 10.1;
 }
 
+void KAIST_TO_ETRI::CallbackCrossTrackError(const std_msgs::Float64& msg)
+{
+    m_CrossTrackError = msg.data;
+}
+void KAIST_TO_ETRI::CallbackHeadingError(const std_msgs::Float64& msg)
+{
+    m_HeadingError = msg.data;
+}
+
+
 #pragma pack(1)
 struct TX_message_data
 {
@@ -321,9 +337,9 @@ int main(int argc, char** argv)
         TX_buff.gpsStatus = (uint32_t)1; //ublox data output: -1. chech this. 
         TX_buff.TTC = (float)_server_to_send.m_TTC; 
         TX_buff.collision = (bool)_server_to_send.m_Collision.data; 
-        TX_buff.crossTrackErr = (double)0; //Calculate using stanley method. /ssh
-        TX_buff.headingErr = (double)0; //calculate using stanley method. /ssh
-        TX_buff.vehStuck = (float)_server_to_send.m_CountStuck; //ssh
+        TX_buff.crossTrackErr = (double)_server_to_send.m_CrossTrackError; //Calculate using stanley method. 
+        TX_buff.headingErr = (double)_server_to_send.m_HeadingError; //calculate using stanley method. 
+        TX_buff.vehStuck = (float)_server_to_send.m_CountStuck; //
         TX_buff.operationMode = (uint8_t)_server_to_send.m_OperationMode; 
         TX_buff.RTOKAIST = (uint16_t)_server_to_send.m_RTO2KAIST; //Error , Status 
         TX_buff.steeringAngle = (double)0; //remove it
