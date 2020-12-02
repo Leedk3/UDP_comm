@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 
 #include <ackermann_msgs/AckermannDriveStamped.h>
+#include <sensor_msgs/Joy.h>
 
 // setup the initial name
 using namespace ros;
@@ -73,8 +74,10 @@ int main(int argc, char** argv)
     // assign node ETRI_TO_KAIST
     ros::NodeHandle nh_;
     ros::Publisher pubEtriOperator = nh_.advertise<ackermann_msgs::AckermannDriveStamped>("/Ackermann/command/etri", 10);
+    ros::Publisher pubEtriJoy = nh_.advertise<sensor_msgs::Joy>("/joy/etri_mobile", 10);
 
     ackermann_msgs::AckermannDriveStamped EtriCommand;
+    sensor_msgs::Joy EtriMobile;
     // for debugging
     printf("Initiate: Server_RX\n");
     ros::Rate loop_rate(50);
@@ -159,9 +162,53 @@ int main(int argc, char** argv)
         EtriCommand.header.frame_id = "base_link";
         EtriCommand.drive.steering_angle = desSteer;
         EtriCommand.drive.speed = desSpeed;
-
         pubEtriOperator.publish(EtriCommand);
         
+        switch(operationMode) // mode chage
+        {
+            case 1: //Maunal
+                EtriMobile.buttons.at(5) = 1; //R1 button : manual
+                EtriMobile.buttons.at(3) = 0; //rectangle botton : visual
+                EtriMobile.buttons.at(1) = 1; //circle botton :auto
+                EtriMobile.buttons.at(0) = 0; //x button : waiting mode
+                break;
+            case 2: //Visual
+                EtriMobile.buttons.at(5) = 0; //R1 button : manual
+                EtriMobile.buttons.at(3) = 1; //rectangle botton : visual
+                EtriMobile.buttons.at(1) = 0; //circle botton :auto
+                EtriMobile.buttons.at(0) = 0; //x button : waiting mode
+                break;
+            case 3: //Autonomous
+                EtriMobile.buttons.at(5) = 0; //R1 button : manual
+                EtriMobile.buttons.at(3) = 0; //rectangle botton : visual
+                EtriMobile.buttons.at(1) = 1; //circle botton :auto
+                EtriMobile.buttons.at(0) = 0; //x button : waiting mode            
+                break;
+            default:
+                EtriMobile.buttons.at(0) = 0; //R1 button : manual
+                EtriMobile.buttons.at(0) = 0; //rectangle botton : visual
+                EtriMobile.buttons.at(0) = 0; //circle botton :auto
+                EtriMobile.buttons.at(0) = 1; //x button : waiting mode            
+                break;
+        }
+
+        if(emergencyStop == 1)
+        {
+            EtriMobile.buttons.at(0) = 0; //R1 button : manual
+            EtriMobile.buttons.at(0) = 0; //rectangle botton : visual
+            EtriMobile.buttons.at(0) = 0; //circle botton :auto
+            EtriMobile.buttons.at(0) = 1; //x button : waiting mode            
+        }
+        if(temp1 == 1)
+            EtriMobile.buttons.at(4) = 1; //camera init
+        else
+        {
+            EtriMobile.buttons.at(4) = 0; //camera init
+        }
+        
+        pubEtriJoy.publish(EtriMobile);
+
+
         loop_rate.sleep();
         // loop sampling, ros
         spinOnce();
